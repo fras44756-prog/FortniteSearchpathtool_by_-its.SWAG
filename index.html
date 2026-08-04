@@ -7,7 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/fflate/0.8.2/fflate.min.js"></script>
 <style>
 :root{
   --bg:#07060a;
@@ -295,6 +294,13 @@ const DATA_FILE = "fortnite_assets.gz";
 const MAX_RESULTS = 1000;
 const DEBOUNCE_MS = 420;
 
+// قائمة روابط CDN لمكتبة fflate للتحميل الاحتياطي
+const FFLATE_SOURCES = [
+  "https://cdnjs.cloudflare.com/ajax/libs/fflate/0.8.2/fflate.min.js",
+  "https://unpkg.com/fflate@0.8.2/unpkg/index.js",
+  "https://cdn.jsdelivr.net/npm/fflate@0.8.2/unpkg/index.js"
+];
+
 const queryEl = document.getElementById("query");
 const searchBtn = document.getElementById("search");
 const resultsEl = document.getElementById("results");
@@ -314,6 +320,33 @@ let ready = false;
 let loading = false;
 let pendingSearch = false;
 let debounceTimer = null;
+
+/* ---------- Dynamic Library Loader with Fallback ---------- */
+function loadFflateLibrary() {
+  if (typeof fflate !== "undefined") return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    let index = 0;
+
+    function tryNext() {
+      if (index >= FFLATE_SOURCES.length) {
+        reject(new Error("Failed to load decompression library from all available CDNs."));
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = FFLATE_SOURCES[index];
+      script.onload = () => resolve();
+      script.onerror = () => {
+        script.remove();
+        index++;
+        tryNext();
+      };
+      document.head.appendChild(script);
+    }
+
+    tryNext();
+  });
+}
 
 /* ---------- Asset-type detection (drives the color badges) ---------- */
 const CATEGORY_RULES = [
@@ -432,8 +465,6 @@ function termsFromQuery(q){
 
 function runSearch(){
   if(!ready){
-    // Index isn't loaded yet — remember the request and run it the moment
-    // loading finishes, instead of silently doing nothing.
     pendingSearch = true;
     if(loading) statusEl.textContent = "Still loading the index — your search will run automatically.";
     return;
@@ -516,6 +547,9 @@ async function loadDatabase(){
   dotEl.classList.remove("error");
 
   try{
+    statusEl.textContent = "Loading library…";
+    await loadFflateLibrary();
+
     const response = await fetch(DATA_FILE, {cache:"force-cache"});
     if(!response.ok) throw new Error(`Server responded ${response.status} for ${DATA_FILE}.`);
 
@@ -538,10 +572,6 @@ async function loadDatabase(){
       gzBytes = concatChunks(chunks, received);
     }else{
       gzBytes = new Uint8Array(await response.arrayBuffer());
-    }
-
-    if(typeof fflate === "undefined"){
-      throw new Error("The decompression library didn't load — check your internet connection and try again.");
     }
 
     statusEl.textContent = "Unpacking index…";
